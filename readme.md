@@ -27,6 +27,8 @@ And here's an **awesome bonus**: since the widgets are registered as settings in
 
 **Development of this plugin is done [on GitHub](https://github.com/x-team/wp-widget-customizer). Pull requests welcome. Please see [issues](https://github.com/x-team/wp-widget-customizer/issues) reported there before going to the plugin forum.**
 
+[![Build Status](https://travis-ci.org/x-team/wp-widget-customizer.png)](https://travis-ci.org/x-team/wp-widget-customizer)
+
 ## Screenshots ##
 
 ### Before changes
@@ -46,6 +48,12 @@ And here's an **awesome bonus**: since the widgets are registered as settings in
 ![I DON'T ALWAYS TEST MY WORDPRESS WIDGETS IN PRODUCTION, BUT WHEN I DO I USE THE WIDGET CUSTOMIZER PLUGIN](assets/screenshot-4.jpg)
 
 ## Changelog ##
+
+### 0.7 ###
+* Make detection of sidebars in previewed template more robust by integrating new temp hooks available in trunk. Fixes [#15](https://github.com/x-team/wp-widget-customizer/pull/15).
+* Allow widget form controls to be dragged to other sidebar sections. Fixes [#24](https://github.com/x-team/wp-widget-customizer/pull/24).
+* Eliminate duplicated code by re-using `wp_widget_control()`
+* Add PHPCS, JSHint, and Travis CI integration
 
 ### 0.6 ###
 Add drag-and-drop reordering of customizer controls, where the new order is itself previewed and is persisted until the settings are saved. Fixes issue [#1](https://github.com/x-team/wp-widget-customizer/pull/1). Props [bobbravo2](http://profiles.wordpress.org/bobbravo2/), [westonruter](http://profiles.wordpress.org/westonruter/).
