@@ -25,20 +25,22 @@ class WordPress_Readme_Parser {
 
 		$this->source = file_get_contents( $this->path );
 		if ( ! $this->source ) {
-			throw new \Exception( 'readme.txt was empty or unreadable' );
+			throw new Exception( 'readme.txt was empty or unreadable' );
 		}
 
 		// Parse metadata
 		$syntax_ok = preg_match( '/^=== (.+?) ===\n(.+?)\n\n(.+?)\n(.+)/s', $this->source, $matches );
 		if ( ! $syntax_ok ) {
-			throw new \Exception( 'Malformed metadata block' );
+			throw new Exception( 'Malformed metadata block' );
 		}
 		$this->title = $matches[1];
 		$this->short_description = $matches[3];
 		$readme_txt_rest = $matches[4];
 		$this->metadata = array_fill_keys( array( 'Contributors', 'Tags', 'Requires at least', 'Tested up to', 'Stable tag', 'License', 'License URI' ), null );
 		foreach ( explode( "\n", $matches[2] ) as $metadatum ) {
-			preg_match( '/^(.+?):\s+(.+)$/', $metadatum, $metadataum_matches ) || \WP_CLI::error( "Parse error in $metadatum" );
+			if ( ! preg_match( '/^(.+?):\s+(.+)$/', $metadatum, $metadataum_matches ) ) {
+				throw new Exception( "Parse error in $metadatum" );
+			}
 			list( $name, $value )  = array_slice( $metadataum_matches, 1, 2 );
 			$this->metadata[$name] = $value;
 		}
@@ -47,7 +49,7 @@ class WordPress_Readme_Parser {
 
 		$syntax_ok = preg_match_all( '/(?:^|\n)== (.+?) ==\n(.+?)(?=\n== |$)/s', $readme_txt_rest, $section_matches, PREG_SET_ORDER );
 		if ( ! $syntax_ok ) {
-			throw new \Exception( 'Failed to parse sections from readme.txt' );
+			throw new Exception( 'Failed to parse sections from readme.txt' );
 		}
 		foreach ( $section_matches as $section_match ) {
 			array_shift( $section_match );
@@ -92,7 +94,9 @@ class WordPress_Readme_Parser {
 			'Screenshots' => function ( $body ) {
 				$body = trim( $body );
 				$new_body = '';
-				preg_match_all( '/^\d+\. (.+?)$/m', $body, $screenshot_matches, PREG_SET_ORDER ) || \WP_CLI::error( 'Malformed screenshot section' );
+				if ( ! preg_match_all( '/^\d+\. (.+?)$/m', $body, $screenshot_matches, PREG_SET_ORDER ) ) {
+					throw new Exception( 'Malformed screenshot section' );
+				}
 				foreach ( $screenshot_matches as $i => $screenshot_match ) {
 					$img_extensions = array( 'jpg', 'gif', 'png' );
 					foreach ( $img_extensions as $ext ) {
