@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Widget Customizer
  * Description: Edit widgets and preview changes in Theme Customizer, with a control for each widget form in sections added for each sidebar rendered in the preview.
- * Version:     0.10
+ * Version:     0.10.1
  * Author:      X-Team
  * Author URI:  http://x-team.com/wordpress/
  * License:     GPLv2+
@@ -762,7 +762,7 @@ class Widget_Customizer {
 		$exports = array(
 			'registered_sidebars' => $GLOBALS['wp_registered_sidebars'],
 			'i18n' => array(
-				'widget_tooltip' => __( 'Edit widget in customizer...', 'widget-customizer' ),
+				'widget_tooltip' => __( 'Press shift and then click to edit widget in customizer...', 'widget-customizer' ),
 			),
 			'render_widget_ajax_action' => self::RENDER_WIDGET_AJAX_ACTION,
 			'render_widget_nonce_value' => wp_create_nonce( self::RENDER_WIDGET_AJAX_ACTION ),
@@ -830,7 +830,7 @@ class Widget_Customizer {
 			if ( in_array( $sidebar_id, self::$rendered_sidebars ) ) {
 				continue;
 			}
-			if ( is_array( $widget_ids ) && in_array( $widget['id'], $widget_ids ) ) {
+			if ( isset( $GLOBALS['wp_registered_sidebars'][$sidebar_id] ) && is_array( $widget_ids ) && in_array( $widget['id'], $widget_ids ) ) {
 				self::$rendered_sidebars[] = $sidebar_id;
 			}
 		}
@@ -843,7 +843,9 @@ class Widget_Customizer {
 	 * @filter temp_is_active_sidebar
 	 */
 	static function tally_sidebars_via_is_active_sidebar_calls( $is_active, $sidebar_id ) {
-		self::$rendered_sidebars[] = $sidebar_id;
+		if ( isset( $GLOBALS['wp_registered_sidebars'][$sidebar_id] ) ) {
+			self::$rendered_sidebars[] = $sidebar_id;
+		}
 		// We may need to force this to true, and also force-true the value for temp_dynamic_sidebar_has_widgets
 		// if we want to ensure that there is an area to drop widgets into, if the sidebar is empty.
 		return $is_active;
@@ -856,7 +858,9 @@ class Widget_Customizer {
 	 * @filter temp_dynamic_sidebar_has_widgets
 	 */
 	static function tally_sidebars_via_dynamic_sidebar_calls( $has_widgets, $sidebar_id ) {
-		self::$rendered_sidebars[] = $sidebar_id;
+		if ( isset( $GLOBALS['wp_registered_sidebars'][$sidebar_id] ) ) {
+			self::$rendered_sidebars[] = $sidebar_id;
+		}
 		// We may need to force this to true, and also force-true the value for temp_is_active_sidebar
 		// if we want to ensure that there is an area to drop widgets into, if the sidebar is empty.
 		return $has_widgets;
