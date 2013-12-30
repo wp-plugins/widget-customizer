@@ -14,7 +14,8 @@ var WidgetCustomizer = (function ($) {
 		sidebars_eligible_for_post_message: {},
 		widgets_eligible_for_post_message: {},
 		current_theme_supports: false,
-		previewer: null
+		previewer: null,
+		saved_widget_ids: {}
 	};
 	$.extend(self, WidgetCustomizer_exports);
 
@@ -48,6 +49,62 @@ var WidgetCustomizer = (function ($) {
 		model: Widget
 	});
 	self.available_widgets = new WidgetLibrary(self.available_widgets);
+
+	/**
+	 * On DOM ready, initialize some meta functionality independent of specific
+	 * customizer controls.
+	 */
+	self.init = function () {
+		this.setupSectionVisibility();
+		this.availableWidgetsPanel.setup();
+	};
+	wp.customize.bind( 'ready', function () {
+		self.init();
+	} );
+
+	/**
+	 * Listen for updates to which sidebars are rendered in the preview and toggle
+	 * the customizer sections accordingly.
+	 */
+	self.setupSectionVisibility = function () {
+
+		self.previewer.bind( 'rendered-sidebars', function ( rendered_sidebars ) {
+
+			var active_sidebar_section_selector = $.map( rendered_sidebars, function ( sidebar_id ) {
+				return '#accordion-section-sidebar-widgets-' + sidebar_id;
+			} ).join( ', ' );
+			var active_sidebar_sections = $( active_sidebar_section_selector );
+			var inactive_sidebar_sections = $( '.control-section[id^="accordion-section-sidebar-widgets-"]' ).not( active_sidebar_section_selector );
+
+			// Hide sections for sidebars no longer active
+			inactive_sidebar_sections.stop().each( function () {
+				// Make sure that hidden sections get closed first
+				if ( $( this ).hasClass( 'open' ) ) {
+					// it would be nice if accordionSwitch() in accordion.js was public
+					$( this ).find( '.accordion-section-title' ).trigger( 'click' );
+				}
+				$( this ).slideUp();
+			} );
+
+			// Show sections for sidebars now active
+			active_sidebar_sections.stop().slideDown( function () {
+				$( this ).css( 'height', 'auto' ); // so that the .accordion-section-content won't overflow
+			} );
+
+			// Open the first visible sidebar section automatically if widget customizer
+			// requested from the admin notice on the widgets page
+			if ( ! self._visibilitySetup && /widget-customizer=open/.test( location.search ) ) {
+				active_sidebar_sections.filter( ':first' ).each( function () {
+					if ( ! $( this ).hasClass( 'open' ) ) {
+						$( this ).find( '.accordion-section-title' ).trigger( 'click' );
+					}
+					this.scrollIntoView();
+				} );
+			}
+			self._visibilitySetup = true;
+		} );
+
+	};
 
 	/**
 	 * Sidebar Widgets control
@@ -134,10 +191,12 @@ var WidgetCustomizer = (function ($) {
 					wp.customize.control.remove( removed_control.id );
 					removed_control.container.remove();
 
-					// Move widget to inactive widgets sidebar
-					var inactive_widgets = wp.customize.value( 'sidebars_widgets[wp_inactive_widgets]' )().slice();
-					inactive_widgets.push( removed_widget_id );
-					wp.customize.value( 'sidebars_widgets[wp_inactive_widgets]' )( _( inactive_widgets ).unique() );
+					// Move widget to inactive widgets sidebar (move it to trash) if it was not previously saved
+					if ( self.saved_widget_ids[removed_widget_id] ) {
+						var inactive_widgets = wp.customize.value( 'sidebars_widgets[wp_inactive_widgets]' )().slice();
+						inactive_widgets.push( removed_widget_id );
+						wp.customize.value( 'sidebars_widgets[wp_inactive_widgets]' )( _( inactive_widgets ).unique() );
+					}
 
 					// Make old single widget available for adding again
 					var widget = self.available_widgets.findWhere({ id_base: removed_control.params.widget_id_base });
@@ -240,8 +299,7 @@ var WidgetCustomizer = (function ($) {
 				control_html = control_html.replace(/<[^<>]+>/g, function (m) {
 					return m.replace( /__i__|%i%/g, widget_number );
 				});
-			}
-			else {
+			} else {
 				widget.set( 'is_disabled', true ); // Prevent single widget from being added again now
 			}
 
@@ -290,7 +348,8 @@ var WidgetCustomizer = (function ($) {
 					sidebar_id: control.params.sidebar_id,
 					widget_id: widget_id,
 					widget_id_base: widget.get( 'id_base' ),
-					type: customize_control_type
+					type: customize_control_type,
+					is_new: ! is_existing_widget
 				},
 				previewer: control.setting.previewer
 			} );
@@ -335,8 +394,7 @@ var WidgetCustomizer = (function ($) {
 					widget_form_control.updateWidget( widget_form_control.setting(), function () {
 						form_autofocus();
 					} );
-				}
-				else {
+				} else {
 					form_autofocus();
 				}
 			});
@@ -358,6 +416,14 @@ var WidgetCustomizer = (function ($) {
 		ready: function() {
 			var control = this;
 
+			// Remember saved widgets so we know which to trash (move to inactive widgets sidebar)
+			var remember_saved_widget_id = function () {
+				self.saved_widget_ids[control.params.widget_id] = true;
+			};
+			wp.customize.bind( 'ready', remember_saved_widget_id );
+			wp.customize.bind( 'saved', remember_saved_widget_id );
+
+			// Update widget whenever model changes
 			control.suppress_update = false;
 			control.setting.bind( function( to, from ) {
 				if ( ! _( from ).isEqual( to ) && ! control.suppress_update ) {
@@ -412,8 +478,16 @@ var WidgetCustomizer = (function ($) {
 					adjacent_focus_target.focus(); // keyboard accessibility
 				});
 			} );
-			remove_btn.text( self.i18n.remove_btn_label ); // wp_widget_control() outputs the link as "Delete"
-			remove_btn.attr( 'title', self.i18n.remove_btn_tooltip );
+
+			var update_form_as_saved = function () {
+				remove_btn.text( self.i18n.remove_btn_label ); // wp_widget_control() outputs the link as "Delete"
+				remove_btn.attr( 'title', self.i18n.remove_btn_tooltip );
+			};
+			if ( control.params.is_new ) {
+				wp.customize.bind( 'saved', update_form_as_saved );
+			} else {
+				update_form_as_saved();
+			}
 
 			// Trigger widget form update when hitting Enter within an input
 			control.container.find( '.widget-content' ).on( 'keydown', 'input', function(e) {
@@ -735,6 +809,11 @@ var WidgetCustomizer = (function ($) {
 				}
 			} );
 
+			// Close the panel if the URL in the preview changes
+			self.previewer.bind( 'url', function () {
+				panel.close();
+			} );
+
 			// Submit a selection when clicked or keypressed
 			$( '#available-widgets .widget-tpl' ).on( 'click keypress', function( event ) {
 
@@ -791,16 +870,18 @@ var WidgetCustomizer = (function ($) {
 				var selected_widget_tpl = null;
 				var first_visible_widget = $( '#available-widgets > .widget-tpl:visible:first' );
 				var last_visible_widget = $( '#available-widgets > .widget-tpl:visible:last' );
+				var filter_input = $( '#available-widgets-filter input' );
+				var is_input_focused = $( event.target ).is( filter_input );
 
 				if ( is_down || is_up ) {
 					if ( is_down ) {
-						if ( $( event.target ).is( 'input' ) ) {
+						if ( is_input_focused ) {
 							selected_widget_tpl = first_visible_widget;
 						} else if ( panel.selected_widget_tpl && panel.selected_widget_tpl.nextAll( '.widget-tpl:visible' ).length !== 0 ) {
 							selected_widget_tpl = panel.selected_widget_tpl.nextAll( '.widget-tpl:visible:first' );
 						}
 					} else if ( is_up ) {
-						if ( $( event.target ).is( 'input' ) ) {
+						if ( is_input_focused ) {
 							selected_widget_tpl = last_visible_widget;
 						} else if ( panel.selected_widget_tpl && panel.selected_widget_tpl.prevAll( '.widget-tpl:visible' ).length !== 0 ) {
 							selected_widget_tpl = panel.selected_widget_tpl.prevAll( '.widget-tpl:visible:first' );
@@ -810,13 +891,13 @@ var WidgetCustomizer = (function ($) {
 					if ( selected_widget_tpl ) {
 						selected_widget_tpl.focus();
 					} else {
-						$( '#available-widgets-filter input' ).focus();
+						filter_input.focus();
 					}
 					return;
 				}
 
 				// If enter pressed but nothing entered, don't do anything
-				if ( is_enter && ! $( this ).val() ) {
+				if ( is_enter && ! filter_input.val() ) {
 					return;
 				}
 
@@ -881,11 +962,6 @@ var WidgetCustomizer = (function ($) {
 			$( '#available-widgets-filter input' ).val( '' );
 		}
 	};
-
-	$( function () {
-		self.availableWidgetsPanel.setup();
-	} );
-
 
 	/**
 	 * @param {String} widget_id

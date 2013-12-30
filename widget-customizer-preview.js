@@ -18,9 +18,12 @@ var WidgetCustomizerPreview = (function ($) {
 
 		init: function () {
 			this.buildWidgetSelectors();
-			this.toggleSections();
 			this.highlightControls();
 			this.livePreview();
+
+			self.preview.bind( 'active', function() {
+				self.preview.send( 'rendered-sidebars', self.rendered_sidebars );
+			});
 		},
 
 		/**
@@ -41,18 +44,6 @@ var WidgetCustomizerPreview = (function ($) {
 					widget_selector += '.' + widget_classes.split(/\s+/).join('.');
 				}
 				self.widget_selectors.push(widget_selector);
-			});
-		},
-
-		/**
-		 * @todo This will fail if a sidebar does not have at least one widget. Can be fixed with http://core.trac.wordpress.org/ticket/25368
-		 * @todo Use a method off of parent.WidgetCustomizer
-		 * @todo Use postMessage instead of accessing parent window?
-		 */
-		toggleSections: function () {
-			parent.jQuery('.control-section[id^="accordion-section-sidebar-widgets-"]').hide();
-			$.each( self.rendered_sidebars, function ( i, sidebar_id ) {
-				parent.jQuery('#accordion-section-sidebar-widgets-' + sidebar_id).show();
 			});
 		},
 
