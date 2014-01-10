@@ -1,5 +1,5 @@
 === Widget Customizer ===
-Contributors:      X-team, westonruter, shaunandrews, johnregan3, akeda, topher1kenobe, topquarky, bobbravo2, ricardocorreia
+Contributors:      X-team, westonruter, shaunandrews, michael-arestad, johnregan3, akeda, topher1kenobe, topquarky, bobbravo2, ricardocorreia
 Tags:              customizer, widgets, sidebars, preview
 Requires at least: 3.7
 Tested up to:      3.8
@@ -11,7 +11,7 @@ Edit widgets and preview changes in Theme Customizer, with a control for each wi
 
 == Description ==
 
-*NEW:* New panel for browsing available widgets to add.
+*NEW:* Widget icons are now vectorized fonts, and controls are faded-out for widgets hidden in the currently-previewed URL (e.g. via Jetpack's Widget Visibility). See [full changelog](http://wordpress.org/plugins/settings-revisions/changelog/).
 
 **Notice regarding empty sidebars:** Unless you are running trunk, you won't be able to add widgets to *empty* sidebars. This is because the [temporary hooks](http://core.trac.wordpress.org/ticket/25368) necessary are [removed in final releases](http://core.trac.wordpress.org/changeset/25878/branches/3.7/src/wp-includes/widgets.php). So you must currently add at least one widget to each sidebar (in the traditional way) for it to appear in the customizer.
 
@@ -56,6 +56,15 @@ The `sidebar-updated` and `widget-updated` events get triggered on `wp.customize
 7. I DON'T ALWAYS TEST MY WORDPRESS WIDGETS IN PRODUCTION, BUT WHEN I DO I USE THE WIDGET CUSTOMIZER PLUGIN
 
 == Changelog ==
+
+= 0.13 =
+* Widget addition panel now features the use of a vector font for the widget icons instead of using PNGs. Fixes [#69](https://github.com/x-team/wp-widget-customizer/issues/69). Props [michael-arestad](http://profiles.wordpress.org/michael-arestad/).
+* Fade widgets not rendered in sidebars on currently-previewed URL (very helpful when using Jetpack's Widget Visibility or the like). Fixes [#65](https://github.com/x-team/wp-widget-customizer/issues/65). Props [westonruter](http://profiles.wordpress.org/westonruter/).
+* Sanitize all settings, including widget instances and sidebar manifests. Serialize widget instances using PHP's `serialize` instead of using JSON, since there may be values which cannot be represented in JSON. Ensure that backslashes are not dropped from widget instances. Fixes [#28](https://github.com/x-team/wp-widget-customizer/issues/28). Props [westonruter](http://profiles.wordpress.org/westonruter/).
+* Wrap `available-widgets` in `widgets-left` for compatibility with plugins which look for widget templates in that element. Fixes [#51](https://github.com/x-team/wp-widget-customizer/issues/51). Props [westonruter](http://profiles.wordpress.org/westonruter/).
+* Fix rendering widgets adjacent to hidden widgets. Props [westonruter](http://profiles.wordpress.org/westonruter/).
+* Improve handling of widget updates which yield no instance changes. Props [westonruter](http://profiles.wordpress.org/westonruter/).
+* Add temp filter to JS-sanitize values for settings which are no longer extant or if they need to be sanitized in an environment where the customizer is not initialized; done specifically for the [Settings Revisions](http://wordpress.org/plugins/settings-revisions/) plugin. Props [westonruter](http://profiles.wordpress.org/westonruter/).
 
 = 0.12 =
 * Delete widgets directly if they have not been previously-saved; if a widget has been previously saved, removal of the widget moves it to the inactive widgets sidebar. Fixes <a href="https://github.com/x-team/wp-widget-customizer/issues/46">#46</a>. Props [westonruter](http://profiles.wordpress.org/westonruter/).

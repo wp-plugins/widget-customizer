@@ -4,11 +4,12 @@ var WidgetCustomizerPreview = (function ($) {
 	'use strict';
 
 	var self = {
-		rendered_sidebars: [],
+		rendered_sidebars: {},
 		sidebars_eligible_for_post_message: {},
-		rendered_widgets: [], // @todo only used once; not really needed as we can just loop over sidebars_widgets
+		rendered_widgets: {},
 		widgets_eligible_for_post_message: {},
 		registered_sidebars: {},
+		registered_widgets: {},
 		widget_selectors: [],
 		render_widget_ajax_action: null,
 		render_widget_nonce_value: null,
@@ -23,7 +24,8 @@ var WidgetCustomizerPreview = (function ($) {
 
 			self.preview.bind( 'active', function() {
 				self.preview.send( 'rendered-sidebars', self.rendered_sidebars );
-			});
+				self.preview.send( 'rendered-widgets', self.rendered_widgets );
+			} );
 		},
 
 		/**
@@ -110,7 +112,7 @@ var WidgetCustomizerPreview = (function ($) {
 		 */
 		refreshTransports: function () {
 			var changed_to_refresh = false;
-			$.each( self.rendered_sidebars, function ( i, sidebar_id ) {
+			$.each( self.rendered_sidebars, function ( sidebar_id ) {
 				var setting_id = sidebar_id_to_setting_id( sidebar_id );
 				var setting = parent.wp.customize( setting_id );
 				var sidebar_transport = self.sidebarCanLivePreview( sidebar_id ) ? 'postMessage' : 'refresh';
@@ -140,7 +142,7 @@ var WidgetCustomizerPreview = (function ($) {
 		},
 
 		/**
-		 *
+		 * Set up the ability for the widget to be previewed without doing a preview refresh
 		 */
 		livePreview: function () {
 			var already_bound_widgets = {};
@@ -149,12 +151,10 @@ var WidgetCustomizerPreview = (function ($) {
 				var setting_id = widget_id_to_setting_id( widget_id );
 				var binder = function( value ) {
 					already_bound_widgets[widget_id] = true;
-					var update_count = 0;
 					value.bind( function( to, from ) {
 						// Workaround for http://core.trac.wordpress.org/ticket/26061;
-						// once fixed, eliminate initial_value, update_count, and this conditional
-						update_count += 1;
-						if ( 1 === update_count && _.isEqual( from, to ) ) {
+						// once fixed, this conditional can be eliminated
+						if ( _.isEqual( from, to ) ) {
 							return;
 						}
 
@@ -181,7 +181,7 @@ var WidgetCustomizerPreview = (function ($) {
 							action: self.render_widget_ajax_action,
 							widget_id: widget_id,
 							setting_id: setting_id,
-							instance: JSON.stringify( to )
+							setting: JSON.stringify( to )
 						};
 						var customized = {};
 						customized[ sidebar_id_to_setting_id( sidebar_id ) ] = sidebar_widgets;
@@ -194,16 +194,13 @@ var WidgetCustomizerPreview = (function ($) {
 								throw new Error( r.data && r.data.message ? r.data.message : 'FAIL' );
 							}
 
-							// @todo Fire jQuery event to indicate that a widget was updated; here widgets can re-initialize them if they support live widgets
 							var old_widget = $( '#' + widget_id );
 							var new_widget = $( r.data.rendered_widget );
 							if ( new_widget.length && old_widget.length ) {
 								old_widget.replaceWith( new_widget );
-							}
-							else if ( ! new_widget.length && old_widget.length ) {
+							} else if ( ! new_widget.length && old_widget.length ) {
 								old_widget.remove();
-							}
-							else if ( new_widget.length && ! old_widget.length ) {
+							} else if ( new_widget.length && ! old_widget.length ) {
 								var sidebar_widgets = wp.customize( sidebar_id_to_setting_id( r.data.sidebar_id ) )();
 								var position = sidebar_widgets.indexOf( widget_id );
 								if ( -1 === position ) {
@@ -212,15 +209,30 @@ var WidgetCustomizerPreview = (function ($) {
 								if ( sidebar_widgets.length === 1 ) {
 									throw new Error( 'Unexpected postMessage for adding first widget to sidebar; refresh must be used instead.' );
 								}
-								if ( position > 0 ) {
-									var before_widget = $( '#' + sidebar_widgets[ position - 1 ] );
+								var before_widget_ids = ( position !== 0 ? sidebar_widgets.slice( 0, position ) : [] );
+								var before_widget_selector = $.map( before_widget_ids, function ( widget_id ) {
+									return '#' + widget_id;
+								} ).join( ',' );
+								var before_widget = $( before_widget_selector ).last();
+								var after_widget_ids = sidebar_widgets.slice( position + 1 );
+								var after_widget_selector = $.map( after_widget_ids, function ( widget_id ) {
+									return '#' + widget_id;
+								} ).join( ',' );
+								var after_widget = $( after_widget_selector ).first();
+
+								if ( before_widget.length ) {
 									before_widget.after( new_widget );
-								}
-								else {
-									var after_widget = $( '#' + sidebar_widgets[ position + 1 ] );
+								} else if ( after_widget.length ) {
 									after_widget.before( new_widget );
+								} else {
+									throw new Error( 'Unable to locate adjacent widget in sidebar.' );
 								}
 							}
+
+							// Update widget visibility
+							self.rendered_widgets[widget_id] = ( 0 !== $( '#' + widget_id ).length );
+
+							self.preview.send( 'rendered-widgets', self.rendered_widgets );
 							self.preview.send( 'widget-updated', widget_id );
 							wp.customize.trigger( 'sidebar-updated', sidebar_id );
 							wp.customize.trigger( 'widget-updated', widget_id );
@@ -232,15 +244,13 @@ var WidgetCustomizerPreview = (function ($) {
 				already_bound_widgets[setting_id] = binder;
 			};
 
-			$.each( self.rendered_sidebars, function ( i, sidebar_id ) {
+			$.each( self.rendered_sidebars, function ( sidebar_id ) {
 				var setting_id = sidebar_id_to_setting_id( sidebar_id );
 				wp.customize( setting_id, function( value ) {
-					var update_count = 0;
 					value.bind( function( to, from ) {
 						// Workaround for http://core.trac.wordpress.org/ticket/26061;
-						// once fixed, eliminate initial_value, update_count, and this conditional
-						update_count += 1;
-						if ( 1 === update_count && _.isEqual( from, to ) ) {
+						// once fixed, this conditional can be eliminated
+						if ( _.isEqual( from, to ) ) {
 							return;
 						}
 
@@ -295,8 +305,7 @@ var WidgetCustomizerPreview = (function ($) {
 				} );
 			} );
 
-			// @todo We don't really need rendered_widgets; we can just loop over all sidebars_widgets, and get all their widget_ids
-			$.each( self.rendered_widgets, function ( widget_id ) {
+			$.each( self.registered_widgets, function ( widget_id ) {
 				var setting_id = widget_id_to_setting_id( widget_id );
 				if ( ! wp.customize.has( setting_id ) ) {
 					// Used to have to do this: wp.customize.create( setting_id, instance );
@@ -334,8 +343,7 @@ var WidgetCustomizerPreview = (function ($) {
 		var matches = widget_id.match(/^(.+?)(?:-(\d+)?)$/);
 		if ( matches ) {
 			setting_id = 'widget_' + matches[1] + '[' + matches[2] + ']';
-		}
-		else {
+		} else {
 			setting_id = 'widget_' + widget_id;
 		}
 		return setting_id;
@@ -357,6 +365,7 @@ var WidgetCustomizerPreview = (function ($) {
 		return 'sidebars_widgets[' + sidebar_id + ']';
 	}
 
+	// @todo on customize ready?
 	$(function () {
 		self.init();
 	});

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Widget Customizer
  * Description: Edit widgets and preview changes in Theme Customizer, with a control for each widget form in sections added for each sidebar rendered in the preview.
- * Version:     0.12
+ * Version:     0.13
  * Author:      X-Team
  * Author URI:  http://x-team.com/wordpress/
  * License:     GPLv2+
@@ -92,6 +92,18 @@ class Widget_Customizer {
 		add_action( 'dynamic_sidebar', array( __CLASS__, 'tally_sidebars_via_dynamic_sidebar_actions' ) );
 		add_filter( 'temp_is_active_sidebar', array( __CLASS__, 'tally_sidebars_via_is_active_sidebar_calls' ), 10, 2 );
 		add_filter( 'temp_dynamic_sidebar_has_widgets', array( __CLASS__, 'tally_sidebars_via_dynamic_sidebar_calls' ), 10, 2 );
+
+		/**
+		 * Special filter for Settings Revisions plugin until it can handle
+		 * dynamically creating settings. Normally this should be handled by
+		 * a setting's sanitize_js_callback, but when restoring an old revision
+		 * it may include settings which do not currently exist, and so they
+		 * do not have the opportunity to be sanitized as needed. Furthermore,
+		 * we have to add this filter here because the customizer is not
+		 * initialized in WP Ajax, which is where Settings Revisions currently
+		 * needs to apply this filter at times.
+		 */
+		add_filter( 'temp_customize_sanitize_js', array( __CLASS__, 'temp_customize_sanitize_js' ), 10, 2 );
 	}
 
 	/**
@@ -277,11 +289,11 @@ class Widget_Customizer {
 	 */
 	static function prepreview_added_widget_instance( $instance, $setting_id ) {
 		if ( isset( self::$_customized[$setting_id] ) ) {
-			assert( preg_match( '/^(widget_(.+?))(?:\[(\d+)\])?$/', $setting_id, $matches ) );
-			$widget_number = isset( $matches[3] ) ? intval( $matches[3] ) : false;
+			$parsed_setting_id = self::parse_widget_setting_id( $setting_id );
+			$widget_number     = $parsed_setting_id['number'];
 
 			// Single widget
-			if ( false === $widget_number ) {
+			if ( is_null( $widget_number ) ) {
 				if ( false === $instance && empty( $value ) ) {
 					$instance = array();
 				}
@@ -375,13 +387,26 @@ class Widget_Customizer {
 
 		$new_setting_ids = array();
 
+		/**
+		 * Register a setting for all widgets, including those which are active, inactive, and orphaned
+		 * since a widget may get suppressed from a sidebar via a plugin (like Widget Visibility).
+		 */
+		foreach ( array_keys( $wp_registered_widgets ) as $widget_id ) {
+			$setting_id   = self::get_setting_id( $widget_id );
+			$setting_args = self::get_setting_args( $setting_id );
+			$setting_args['sanitize_callback']    = array( __CLASS__, 'sanitize_widget_instance' );
+			$setting_args['sanitize_js_callback'] = array( __CLASS__, 'sanitize_widget_js_instance' );
+			$wp_customize->add_setting( $setting_id, $setting_args );
+			$new_setting_ids[] = $setting_id;
+		}
+
 		foreach ( $sidebars_widgets as $sidebar_id => $sidebar_widget_ids ) {
 			if ( empty( $sidebar_widget_ids ) ) {
 				$sidebar_widget_ids = array();
 			}
 			$is_registered_sidebar = isset( $GLOBALS['wp_registered_sidebars'][$sidebar_id] );
 			$is_inactive_widgets   = ( 'wp_inactive_widgets' === $sidebar_id );
-			$is_active_sidebar     = ( $is_registered_sidebar  && ! $is_inactive_widgets );
+			$is_active_sidebar     = ( $is_registered_sidebar && ! $is_inactive_widgets );
 
 			/**
 			 * Add setting for managing the sidebar's widgets
@@ -394,6 +419,7 @@ class Widget_Customizer {
 				} else {
 					self::$sidebars_eligible_for_post_message[$sidebar_id] = ( 'postMessage' === self::get_sidebar_widgets_setting_transport( $sidebar_id ) );
 				}
+				$setting_args['sanitize_callback'] = array( __CLASS__, 'sanitize_sidebar_widgets' );
 				$wp_customize->add_setting( $setting_id, $setting_args );
 				$new_setting_ids[] = $setting_id;
 
@@ -424,39 +450,30 @@ class Widget_Customizer {
 			}
 
 			/**
-			 * Add setting for each widget, and a control for each active widget (located in a sidebar)
+			 * Add a control for each active widget (located in a sidebar)
 			 */
 			foreach ( $sidebar_widget_ids as $i => $widget_id ) {
 				// Skip widgets that may have gone away due to a plugin being deactivated
-				if ( ! isset( $GLOBALS['wp_registered_widgets'][$widget_id] ) ) {
+				if ( ! $is_active_sidebar || ! isset( $GLOBALS['wp_registered_widgets'][$widget_id] ) ) {
 					continue;
 				}
 				$registered_widget = $GLOBALS['wp_registered_widgets'][$widget_id];
 				$setting_id = self::get_setting_id( $widget_id );
-				$setting_args = self::get_setting_args( $setting_id );
 				$id_base = $GLOBALS['wp_registered_widget_controls'][$widget_id]['id_base'];
-				$wp_customize->add_setting( $setting_id, $setting_args );
-				$new_setting_ids[] = $setting_id;
-
-				/**
-				 * Add control for widget if it is active
-				 */
-				if ( $is_active_sidebar ) {
-					assert( false !== is_active_widget( $registered_widget['callback'], $registered_widget['id'], false, false ) );
-					$control = new Widget_Form_WP_Customize_Control(
-						$wp_customize,
-						$setting_id,
-						array(
-							'label' => $registered_widget['name'],
-							'section' => $section_id,
-							'sidebar_id' => $sidebar_id,
-							'widget_id' => $widget_id,
-							'widget_id_base' => $id_base,
-							'priority' => $i,
-						)
-					);
-					$wp_customize->add_control( $control );
-				}
+				assert( false !== is_active_widget( $registered_widget['callback'], $registered_widget['id'], false, false ) );
+				$control = new Widget_Form_WP_Customize_Control(
+					$wp_customize,
+					$setting_id,
+					array(
+						'label' => $registered_widget['name'],
+						'section' => $section_id,
+						'sidebar_id' => $sidebar_id,
+						'widget_id' => $widget_id,
+						'widget_id_base' => $id_base,
+						'priority' => $i,
+					)
+				);
+				$wp_customize->add_control( $control );
 			}
 		}
 
@@ -478,15 +495,56 @@ class Widget_Customizer {
 	 * Covert a widget_id into its corresponding customizer setting id (option name)
 	 *
 	 * @param string $widget_id
+	 * @see _get_widget_id_base()
 	 * @return string
 	 */
 	static function get_setting_id( $widget_id ) {
-		preg_match( '/^(.*?)(?:-([0-9]+))?$/', $widget_id, $matches ); // see private _get_widget_id_base()
-		$setting_id = sprintf( 'widget_%s', $matches[1] );
-		if ( isset( $matches[2] ) ) {
-			$setting_id .= sprintf( '[%d]', $matches[2] );
+		$parsed_widget_id = self::parse_widget_id( $widget_id );
+		$setting_id = sprintf( 'widget_%s', $parsed_widget_id['id_base'] );
+		if ( ! is_null( $parsed_widget_id['number'] ) ) {
+			$setting_id .= sprintf( '[%d]', $parsed_widget_id['number'] );
 		}
 		return $setting_id;
+	}
+
+	/**
+	 * Covert a widget ID into its id_base and number components
+	 *
+	 * @param string $widget_id
+	 * @return array
+	 */
+	static function parse_widget_id( $widget_id ) {
+		$parsed = array(
+			'number' => null,
+			'id_base' => null,
+		);
+		if ( preg_match( '/^(.+)-(\d+)$/', $widget_id, $matches ) ) {
+			$parsed['id_base'] = $matches[1];
+			$parsed['number']  = intval( $matches[2] );
+		} else {
+			// likely an old single widget
+			$parsed['id_base'] = $widget_id;
+		}
+		return $parsed;
+	}
+
+	/**
+	 * Convert a widget setting ID (option path) to its id_base and number components
+	 *
+	 * @throws Widget_Customizer_Exception
+	 * @throws Exception
+	 *
+	 * @param string $setting_id
+	 * @param array
+	 * @return array
+	 */
+	static function parse_widget_setting_id( $setting_id ) {
+		if ( ! preg_match( '/^(widget_(.+?))(?:\[(\d+)\])?$/', $setting_id, $matches ) ) {
+			throw new Widget_Customizer_Exception( sprintf( 'Invalid widget setting ID: %s', $setting_id ) );
+		}
+		$id_base = $matches[2];
+		$number  = isset( $matches[3] ) ? intval( $matches[3] ) : null;
+		return compact( 'id_base', 'number' );
 	}
 
 	/**
@@ -534,6 +592,7 @@ class Widget_Customizer {
 			'update_widget_nonce_value' => wp_create_nonce( self::UPDATE_WIDGET_AJAX_ACTION ),
 			'update_widget_nonce_post_key' => self::UPDATE_WIDGET_NONCE_POST_KEY,
 			'registered_sidebars' => $GLOBALS['wp_registered_sidebars'],
+			'registered_widgets' => $GLOBALS['wp_registered_widgets'],
 			'i18n' => array(
 				'save_btn_label' => _x( 'Update', 'button to save changes to a widget', 'widget-customizer' ),
 				'save_btn_tooltip' => _x( 'Save and preview changes before publishing them.', 'tooltip on the widget save button', 'widget-customizer' ),
@@ -545,6 +604,9 @@ class Widget_Customizer {
 			'widgets_eligible_for_post_message' => self::$widgets_eligible_for_post_message,
 			'current_theme_supports' => current_theme_supports( 'widget-customizer' ),
 		);
+		foreach ( $exports['registered_widgets'] as &$registered_widget ) {
+			unset( $registered_widget['callback'] ); // may not be JSON-serializeable
+		}
 
 		$wp_scripts->add_data(
 			'widget-customizer',
@@ -560,24 +622,19 @@ class Widget_Customizer {
 	 */
 	static function output_widget_control_templates() {
 		?>
+		<div id="widgets-left"><!-- compatibility with JS which looks for widget templates here -->
 		<div id="available-widgets">
 			<div id="available-widgets-filter">
 				<input type="search" placeholder="<?php esc_attr_e( 'Find widgets&hellip;', 'widget-customizer' ) ?>">
 			</div>
 			<?php foreach ( self::get_available_widgets() as $available_widget ): ?>
-				<?php
-				$icon_path = sprintf( plugin_dir_path( __FILE__ ) . 'icons/icon-%s.png', $available_widget['id_base'] );
-				$icon_url  = file_exists( $icon_path ) ? sprintf( plugin_dir_url( __FILE__ ) . 'icons/icon-%s.png', $available_widget['id_base'] ) : plugin_dir_url( __FILE__ ) . 'icons/icon-default.png';
-				$icon_url  = apply_filters( 'widget_icon_url', $icon_url, $available_widget['id'] );
-				?>
 				<div id="widget-tpl-<?php echo esc_attr( $available_widget['id'] ) ?>" data-widget-id="<?php echo esc_attr( $available_widget['id'] ) ?>" class="widget-tpl <?php echo esc_attr( $available_widget['id'] ) ?>" tabindex="0">
-					<?php if ( ! empty( $icon_url ) ): ?>
-						<img src="<?php echo esc_url( $icon_url ) ?>" alt="Icon" class="widget-icon">
-					<?php endif; ?>
+					<div class="widget-icon"></div>
 					<?php echo $available_widget['control_tpl']; // xss ok ?>
 				</div>
 			<?php endforeach; ?>
-		</div>
+		</div><!-- #available-widgets -->
+		</div><!-- #widgets-left -->
 		<?php
 	}
 
@@ -598,6 +655,40 @@ class Widget_Customizer {
 		$args = array_merge( $args, $overrides );
 		$args = apply_filters( 'widget_customizer_setting_args', $args, $id );
 		return $args;
+	}
+
+	/**
+	 * Make sure that a sidebars_widgets[x] only ever consists of actual widget IDs.
+	 * Used as sanitize_callback for each sidebars_widgets setting.
+	 *
+	 * @param array $widget_ids
+	 * @return array
+	 */
+	static function sanitize_sidebar_widgets( $widget_ids ) {
+		global $wp_registered_widgets;
+		$widget_ids = array_map( 'strval', (array) $widget_ids );
+		$sanitized_widget_ids = array();
+		foreach ( $widget_ids as $widget_id ) {
+			if ( array_key_exists( $widget_id, $wp_registered_widgets ) ) {
+				$sanitized_widget_ids[] = $widget_id;
+			}
+		}
+		return $sanitized_widget_ids;
+	}
+
+	/**
+	 * Special filter for Settings Revisions plugin until it can handle
+	 * dynamically creating settings.
+	 *
+	 * @param mixed $value
+	 * @param stdClass|WP_Customize_Setting $setting
+	 * @return mixed
+	 */
+	static function temp_customize_sanitize_js( $value, $setting ) {
+		if ( preg_match( '/^widget_/', $setting->id ) && $setting->type === 'option' ) {
+			$value = self::sanitize_widget_js_instance( $value );
+		}
+		return $value;
 	}
 
 	/**
@@ -840,6 +931,7 @@ class Widget_Customizer {
 		global $wp_scripts;
 		$exports = array(
 			'registered_sidebars' => $GLOBALS['wp_registered_sidebars'],
+			'registered_widgets' => $GLOBALS['wp_registered_widgets'],
 			'i18n' => array(
 				'widget_tooltip' => __( 'Press shift and then click to edit widget in customizer...', 'widget-customizer' ),
 			),
@@ -851,6 +943,9 @@ class Widget_Customizer {
 			'widgets_eligible_for_post_message' => self::$widgets_eligible_for_post_message,
 			'current_theme_supports' => current_theme_supports( 'widget-customizer' ),
 		);
+		foreach ( $exports['registered_widgets'] as &$registered_widget ) {
+			unset( $registered_widget['callback'] ); // may not be JSON-serializeable
+		}
 		$wp_scripts->add_data(
 			'widget-customizer-preview',
 			'data',
@@ -869,8 +964,8 @@ class Widget_Customizer {
 		<script>
 		(function () {
 			/*global WidgetCustomizerPreview */
-			WidgetCustomizerPreview.rendered_sidebars = <?php echo json_encode( array_unique( self::$rendered_sidebars ) ) ?>;
-			WidgetCustomizerPreview.rendered_widgets = <?php echo json_encode( self::$rendered_widgets ); ?>;
+			WidgetCustomizerPreview.rendered_sidebars = <?php echo json_encode( array_fill_keys( array_unique( self::$rendered_sidebars ), true ) ) ?>;
+			WidgetCustomizerPreview.rendered_widgets = <?php echo json_encode( array_fill_keys( array_keys( self::$rendered_widgets ), true ) ); ?>;
 		}());
 		</script>
 		<?php
@@ -882,20 +977,10 @@ class Widget_Customizer {
 	/**
 	 * Keep track of the widgets that were rendered
 	 *
-	 * @todo With this in place, do we even need to register the settings while in the customizer preview?
 	 * @action dynamic_sidebar
 	 */
 	static function tally_rendered_widgets( $widget ) {
-		$instance = array();
-		if ( preg_match( '/^(.+?)-(\d+)$/', $widget['id'], $matches ) ) {
-			$option_value = get_option( 'widget_' . $matches[1] );
-			if ( ! empty( $option_value[$matches[2]] ) ) {
-				$instance = $option_value[$matches[2]];
-			}
-		} else {
-			$instance = get_option( 'widget_' . $widget['id'], array() );
-		}
-		self::$rendered_widgets[$widget['id']] = $instance;
+		self::$rendered_widgets[$widget['id']] = true;
 	}
 
 	/**
@@ -997,12 +1082,16 @@ class Widget_Customizer {
 			}
 			$widget = $wp_registered_widgets[$widget_id];
 
-			if ( empty( $_POST['instance'] ) ) {
+			if ( empty( $_POST['setting'] ) ) {
 				throw new Widget_Customizer_Exception( __( 'Missing instance', 'widget-customizer' ) );
 			}
-			$instance = json_decode( wp_unslash( $_POST['instance'] ), true );
-			if ( is_null( $instance ) ) {
+			$setting = json_decode( wp_unslash( $_POST['setting'] ), true );
+			if ( is_null( $setting ) ) {
 				throw new Widget_Customizer_Exception( __( 'JSON parse error', 'widget-customizer' ) );
+			}
+			$instance = self::sanitize_widget_instance( $setting );
+			if ( is_null( $instance ) ) {
+				throw new Widget_Customizer_Exception( __( 'Unsanitary widget instance provided', 'widget-customizer' ) );
 			}
 
 			$setting_id = wp_unslash( $_POST['setting_id'] );
@@ -1025,6 +1114,7 @@ class Widget_Customizer {
 			$rendered_widget = null;
 			$sidebar_id = is_active_widget( $widget['callback'], $widget['id'], false, false );
 
+			// Render the widget if it is assigned to a sidebar (and not temporarily removed, for example by Widget Visibility)
 			if ( $sidebar_id ) {
 				$sidebar = $wp_registered_sidebars[$sidebar_id];
 				$params  = array_merge(
@@ -1041,8 +1131,6 @@ class Widget_Customizer {
 				);
 
 				$callback = $widget['callback'];
-
-				// @todo If the widget is not assigned to a sidebar (e.g. via Widget Visibility), we need to return nothing!
 
 				// Substitute HTML id and class attributes into before_widget
 				$classname_ = '';
@@ -1082,90 +1170,139 @@ class Widget_Customizer {
 	}
 
 	/**
-	 * Allow customizer to update a widget using its form, but return the new
-	 * instance info via Ajax instead of saving it to the options table.
-	 * Most code here copied from wp_ajax_save_widget()
+	 * Serialize an instance and hash it with the AUTH_KEY; when a JS value is
+	 * posted back to save, this instance hash key is used to ensure that the
+	 * serialized_instance was not tampered with, but that it had originated
+	 * from WordPress and so is sanitized.
 	 *
-	 * @see wp_ajax_save_widget
-	 * @todo Reuse wp_ajax_save_widget now that we have option transactions?
-	 * @action wp_ajax_update_widget
+	 * @param array $instance
+	 * @return string
 	 */
-	static function wp_ajax_update_widget() {
-		global $wp_registered_widget_controls, $wp_registered_widget_updates;
-		require_once plugin_dir_path( __FILE__ ) . '/class-options-transaction.php';
+	protected static function get_instance_hash_key( $instance ) {
+		$hash = md5( AUTH_KEY . serialize( $instance ) );
+		return $hash;
+	}
 
-		$generic_error = __( 'An error has occurred. Please reload the page and try again.', 'widget-customizer' );
+	/**
+	 * Unserialize the JS-instance for storing in the options. It's important
+	 * that this filter only get applied to an instance once.
+	 *
+	 * @see Widget_Customizer::sanitize_widget_js_instance()
+	 *
+	 * @param array $value
+	 * @return array
+	 */
+	static function sanitize_widget_instance( $value ) {
+		$invalid = (
+			empty( $value['is_widget_customizer_js_value'] )
+			||
+			empty( $value['instance_hash_key'] )
+			||
+			empty( $value['encoded_serialized_instance'] )
+		);
+		if ( $invalid ) {
+			return null;
+		}
+		$decoded = base64_decode( $value['encoded_serialized_instance'], true );
+		if ( false === $decoded ) {
+			return null;
+		}
+		$instance = unserialize( $decoded );
+		if ( false === $instance ) {
+			return null;
+		}
+		if ( self::get_instance_hash_key( $instance ) !== $value['instance_hash_key'] ) {
+			return null;
+		}
+		return $instance;
+	}
+
+	/**
+	 * Convert widget instance into JSON-representable format
+	 *
+	 * @see Widget_Customizer::sanitize_widget_instance()
+	 *
+	 * @param array $value
+	 * @return array
+	 */
+	static function sanitize_widget_js_instance( $value ) {
+		if ( empty( $value['is_widget_customizer_js_value'] ) ) {
+			$serialized = serialize( $value );
+			$value = array(
+				'encoded_serialized_instance' => base64_encode( $serialized ),
+				'title' => empty( $value['title'] ) ? '' : $value['title'],
+				'is_widget_customizer_js_value' => true,
+				'instance_hash_key' => self::get_instance_hash_key( $value ),
+			);
+		}
+		return $value;
+	}
+
+	/**
+	 * Find and invoke the widget update and control callbacks. Requires that
+	 * $_POST be populated with the instance data.
+	 *
+	 * @throws Widget_Customizer_Exception
+	 * @throws Exception
+	 *
+	 * @param string $widget_id
+	 * @return array
+	 */
+	static function call_widget_update( $widget_id ) {
+		global $wp_registered_widget_updates, $wp_registered_widget_controls;
+
+		require_once plugin_dir_path( __FILE__ ) . '/class-options-transaction.php';
+		$options_transaction = new Options_Transaction();
 
 		try {
-			$options_transaction = new Options_Transaction();
 			$options_transaction->start();
-			if ( ! check_ajax_referer( self::UPDATE_WIDGET_AJAX_ACTION, self::UPDATE_WIDGET_NONCE_POST_KEY, false ) ) {
-				throw new Widget_Customizer_Exception( __( 'Nonce check failed. Reload and try again?', 'widget-customizer' ) );
-			}
-			if ( ! current_user_can( 'edit_theme_options' ) ) {
-				throw new Widget_Customizer_Exception( __( 'Current user cannot!', 'widget-customizer' ) );
-			}
-			if ( ! isset( $_POST['id_base'] ) ) {
-				throw new Widget_Customizer_Exception( __( 'Incomplete request', 'widget-customizer' ) );
-			}
+			$parsed_id   = self::parse_widget_id( $widget_id );
+			$option_name = 'widget_' . $parsed_id['id_base'];
 
-			unset( $_POST[self::UPDATE_WIDGET_NONCE_POST_KEY], $_POST['action'] );
-
-			do_action( 'load-widgets.php' );
-			do_action( 'widgets.php' );
-			do_action( 'sidebar_admin_setup' );
-
-			$id_base       = filter_input( INPUT_POST, 'id_base' );
-			$widget_id     = filter_input( INPUT_POST, 'widget-id' );
-			$widget_number = filter_input( INPUT_POST, 'widget_number', FILTER_VALIDATE_INT );
-			$multi_number  = filter_input( INPUT_POST, 'multi_number', FILTER_VALIDATE_INT );
-			$option_name   = 'widget_' . $id_base;
-
-			if ( isset( $_POST['widget-' . $id_base] ) && is_array( $_POST['widget-' . $id_base] ) && preg_match( '/__i__|%i%/', key( $_POST['widget-' . $id_base] ) ) ) {
-				throw new Widget_Customizer_Exception( 'Cannot pass widget templates to create new instances; apply template vars in JS' );
+			/**
+			 * If a previously-sanitized instance is provided, populate the input vars
+			 * with its values so that the widget update callback will read this instance
+			 */
+			$added_input_vars = array();
+			if ( ! empty( $_POST['sanitized_widget_setting'] ) ) {
+				$sanitized_widget_setting = json_decode( wp_unslash( $_POST['sanitized_widget_setting'] ), true );
+				if ( empty( $sanitized_widget_setting ) ) {
+					throw new Widget_Customizer_Exception( 'Malformed sanitized_widget_setting' );
+				}
+				$instance = self::sanitize_widget_instance( $sanitized_widget_setting );
+				if ( is_null( $instance ) ) {
+					throw new Widget_Customizer_Exception( 'Unsanitary sanitized_widget_setting' );
+				}
+				if ( ! is_null( $parsed_id['number'] ) ) {
+					$value = array();
+					$value[$parsed_id['number']] = $instance;
+					$key = 'widget-' . $parsed_id['id_base'];
+					$_REQUEST[$key] = $_POST[$key] = wp_slash( $value );
+					$added_input_vars[] = $key;
+				} else {
+					foreach ( $instance as $key => $value ) {
+						$_REQUEST[$key] = $_POST[$key] = wp_slash( $value );
+						$added_input_vars[] = $key;
+					}
+				}
 			}
 
 			/**
-			 * Perform the widget update
+			 * Invoke the widget update callback
 			 */
-			if ( isset( $_POST['json_instance_override'] ) ) {
-				$instance_override = json_decode( filter_input( INPUT_POST, 'json_instance_override' ), true );
-				$option = get_option( $option_name );
-				if ( ! empty( $widget_number ) ) {
-					$option[$widget_number] = $instance_override;
-				}
-				else {
-					$option = $instance_override;
-				}
-				update_option( $option_name, $option );
-
-				// Delete other $_POST fields to prevent old single widgets from obeying override
-				$preserved_keys = array(
-					'widget-id',
-					'id_base',
-					'widget-width',
-					'widget-height',
-					'widget_number',
-					'multi_number',
-					'add_new',
-					'action',
-				);
-				foreach ( array_diff( array_keys( $_POST ), $preserved_keys ) as $deleted_key ) {
-					unset( $_POST[$deleted_key] );
+			foreach ( (array) $wp_registered_widget_updates as $name => $control ) {
+				if ( $name === $parsed_id['id_base'] && is_callable( $control['callback'] ) ) {
+					ob_start();
+					call_user_func_array( $control['callback'], $control['params'] );
+					ob_end_clean();
+					break;
 				}
 			}
-			else {
-				foreach ( (array) $wp_registered_widget_updates as $name => $control ) {
-					if ( $name === $id_base ) {
-						if ( ! is_callable( $control['callback'] ) ) {
-							continue;
-						}
-						ob_start();
-						call_user_func_array( $control['callback'], $control['params'] );
-						ob_end_clean();
-						break;
-					}
-				}
+
+			// Clean up any input vars that were manually added
+			foreach ( $added_input_vars as $key ) {
+				unset( $_POST[$key] );
+				unset( $_REQUEST[$key] );
 			}
 
 			/**
@@ -1173,15 +1310,16 @@ class Widget_Customizer {
 			 */
 			if ( 0 !== $options_transaction->count() ) {
 				if ( count( $options_transaction->options ) > 1 ) {
-					throw new Widget_Customizer_Exception( 'Widget unexpectedly updated more than one option.' );
+					throw new Widget_Customizer_Exception( sprintf( 'Widget %$1s unexpectedly updated more than one option.', $widget_id ) );
 				}
-				if ( key( $options_transaction->options ) !== $option_name ) {
-					throw new Widget_Customizer_Exception( 'Widget updated unexpected option.' );
+				$updated_option_name = key( $options_transaction->options );
+				if ( $updated_option_name !== $option_name ) {
+					throw new Widget_Customizer_Exception( sprintf( 'Widget %$1s updated option "%$2s", but expected "%$3s".', $widget_id, $updated_option_name, $option_name ) );
 				}
 			}
 
 			/**
-			 * Obtain the widget control
+			 * Obtain the widget control with the updated instance in place
 			 */
 			ob_start();
 			$form = $wp_registered_widget_controls[$widget_id];
@@ -1194,21 +1332,68 @@ class Widget_Customizer {
 			 * Obtain the widget instance
 			 */
 			$option = get_option( $option_name );
-			if ( $widget_number ) {
-				$instance = $option[$widget_number];
+			if ( null !== $parsed_id['number'] ) {
+				$instance = $option[$parsed_id['number']];
 			} else {
 				$instance = $option;
 			}
 
 			$options_transaction->rollback();
+			return compact( 'instance', 'form' );
+		}
+		catch ( Exception $e ) {
+			$options_transaction->rollback();
+			throw $e;
+		}
+	}
+
+	/**
+	 * Allow customizer to update a widget using its form, but return the new
+	 * instance info via Ajax instead of saving it to the options table.
+	 * Most code here copied from wp_ajax_save_widget()
+	 *
+	 * @see wp_ajax_save_widget
+	 * @todo Reuse wp_ajax_save_widget now that we have option transactions?
+	 * @action wp_ajax_update_widget
+	 */
+	static function wp_ajax_update_widget() {
+		$generic_error = __( 'An error has occurred. Please reload the page and try again.', 'widget-customizer' );
+
+		try {
+			if ( ! check_ajax_referer( self::UPDATE_WIDGET_AJAX_ACTION, self::UPDATE_WIDGET_NONCE_POST_KEY, false ) ) {
+				throw new Widget_Customizer_Exception( __( 'Nonce check failed. Reload and try again?', 'widget-customizer' ) );
+			}
+			if ( ! current_user_can( 'edit_theme_options' ) ) {
+				throw new Widget_Customizer_Exception( __( 'Current user cannot!', 'widget-customizer' ) );
+			}
+			if ( ! isset( $_POST['widget-id'] ) ) {
+				throw new Widget_Customizer_Exception( __( 'Incomplete request', 'widget-customizer' ) );
+			}
+
+			unset( $_POST[self::UPDATE_WIDGET_NONCE_POST_KEY], $_POST['action'] );
+
+			do_action( 'load-widgets.php' );
+			do_action( 'widgets.php' );
+			do_action( 'sidebar_admin_setup' );
+
+			$widget_id = filter_input( INPUT_POST, 'widget-id' );
+			$parsed_id = self::parse_widget_id( $widget_id );
+			$id_base   = $parsed_id['id_base'];
+
+			if ( isset( $_POST['widget-' . $id_base] ) && is_array( $_POST['widget-' . $id_base] ) && preg_match( '/__i__|%i%/', key( $_POST['widget-' . $id_base] ) ) ) {
+				throw new Widget_Customizer_Exception( 'Cannot pass widget templates to create new instances; apply template vars in JS' );
+			}
+
+			$updated_widget = self::call_widget_update( $widget_id ); // => {instance,form}
+			$form = $updated_widget['form'];
+			$instance = self::sanitize_widget_js_instance( $updated_widget['instance'] );
+
 			wp_send_json_success( compact( 'form', 'instance' ) );
 		}
 		catch( Exception $e ) {
-			$options_transaction->rollback();
 			if ( $e instanceof Widget_Customizer_Exception ) {
 				$message = $e->getMessage();
-			}
-			else {
+			} else {
 				error_log( sprintf( '%s in %s: %s', get_class( $e ), __FUNCTION__, $e->getMessage() ) );
 				$message = $generic_error;
 			}

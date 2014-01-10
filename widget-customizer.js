@@ -1,4 +1,4 @@
-/*global wp, Backbone, _, jQuery, WidgetCustomizer_exports, alert */
+/*global wp, Backbone, _, jQuery, WidgetCustomizer_exports */
 /*exported WidgetCustomizer */
 var WidgetCustomizer = (function ($) {
 	'use strict';
@@ -69,6 +69,7 @@ var WidgetCustomizer = (function ($) {
 	self.setupSectionVisibility = function () {
 
 		self.previewer.bind( 'rendered-sidebars', function ( rendered_sidebars ) {
+			rendered_sidebars = _( rendered_sidebars ).keys();
 
 			var active_sidebar_section_selector = $.map( rendered_sidebars, function ( sidebar_id ) {
 				return '#accordion-section-sidebar-widgets-' + sidebar_id;
@@ -391,7 +392,10 @@ var WidgetCustomizer = (function ($) {
 				widget_form_control.expandForm();
 
 				if ( is_existing_widget ) {
-					widget_form_control.updateWidget( widget_form_control.setting(), function () {
+					widget_form_control.updateWidget( widget_form_control.setting(), function ( error ) {
+						if ( error ) {
+							throw error;
+						}
 						form_autofocus();
 					} );
 				} else {
@@ -423,10 +427,11 @@ var WidgetCustomizer = (function ($) {
 			wp.customize.bind( 'ready', remember_saved_widget_id );
 			wp.customize.bind( 'saved', remember_saved_widget_id );
 
+			control.is_widget_updating = false;
+
 			// Update widget whenever model changes
-			control.suppress_update = false;
 			control.setting.bind( function( to, from ) {
-				if ( ! _( from ).isEqual( to ) && ! control.suppress_update ) {
+				if ( ! _( from ).isEqual( to ) && ! control.is_widget_updating ) {
 					control.updateWidget( to );
 				}
 			});
@@ -507,54 +512,87 @@ var WidgetCustomizer = (function ($) {
 				}
 			} );
 
+			// Update widget control to indicate whether it is currently rendered (cf. Widget Visibility)
+			self.previewer.bind( 'rendered-widgets', function ( rendered_widgets ) {
+				var is_rendered = !! rendered_widgets[control.params.widget_id];
+				control.container.toggleClass( 'widget-rendered', is_rendered );
+			} );
+
 			control.setupControlToggle();
 			control.setupWidgetTitle();
 			control.editingEffects();
 		},
 
 		/**
-		 * @param {object} [instance_override]  When the model changes, the instance is sent this way
-		 * @param {function} [success_callback]  Function which is called when the request finishes
+		 * Submit the widget form via Ajax and get back the updated instance,
+		 * along with the new widget control form to render.
+		 *
+		 * @param {object|null} [instance_override]  When the model changes, the instance is sent here; otherwise, the inputs from the form are used
+		 * @param {function} [complete_callback]  Function which is called when the request finishes. Context is bound to the control. First argument is any error. Following arguments are for success.
 		 */
-		updateWidget: function ( instance_override, success_callback ) {
+		updateWidget: function ( instance_override, complete_callback ) {
 			var control = this;
-			var data = control.container.find(':input').serialize();
 
 			control.container.addClass( 'widget-form-loading' );
 			control.container.addClass( 'previewer-loading' );
 			control.container.find( '.widget-content' ).prop( 'disabled', true );
 
+			var parsed_widget_id = parse_widget_id( control.params.widget_id );
 			var params = {};
 			params.action = self.update_widget_ajax_action;
 			params[self.update_widget_nonce_post_key] = self.update_widget_nonce_value;
+			params['widget-id'] = control.params.widget_id;
+			params.id_base = parsed_widget_id.id_base;
+			params.widget_number = parsed_widget_id.number || '';
+			// @todo widget-width and widget-height?
+
+			var data = $.param( params );
+
 			if ( instance_override ) {
-				params.json_instance_override = JSON.stringify( instance_override );
+				data += '&' + $.param( { 'sanitized_widget_setting': JSON.stringify( instance_override ) } );
+			} else {
+				data += '&' + control.container.find( '.widget-content' ).find( ':input' ).serialize();
 			}
-			data += '&' + $.param( params );
 
 			var jqxhr = $.post( wp.ajax.settings.url, data, function (r) {
 				if ( r.success ) {
 					control.container.find( '.widget-content' ).html( r.data.form );
 
-					if ( ! instance_override ) { // @todo why?
-						control.suppress_update = true; // We already updated it with r.data.form above
+					/**
+					 * If the old instance is identical to the new one, there is nothing new
+					 * needing to be rendered, and so we can preempt the event for the
+					 * preview finishing loading.
+					 */
+					var is_instance_identical = _( control.setting() ).isEqual( r.data.instance );
+					if ( is_instance_identical ) {
+						control.container.removeClass( 'previewer-loading' );
+					} else {
+						control.is_widget_updating = true; // suppress triggering another updateWidget
 						control.setting( r.data.instance );
-						control.suppress_update = false;
+						control.is_widget_updating = false;
 					}
-					if ( success_callback ) {
-						success_callback.call( null, control );
+
+					if ( complete_callback ) {
+						complete_callback.call( control, null, { no_change: is_instance_identical, ajax_finished: true } );
 					}
-				}
-				else {
+				} else {
 					var message = 'FAIL';
 					if ( r.data && r.data.message ) {
 						message = r.data.message;
 					}
-					alert( message );
+					if ( complete_callback ) {
+						complete_callback.call( control, message );
+					} else {
+						throw new Error( message );
+					}
 				}
 			});
 			jqxhr.fail( function (jqXHR, textStatus ) {
-				alert( textStatus );
+				if ( complete_callback ) {
+					complete_callback.call( control, textStatus );
+				} else {
+					throw new Error( textStatus );
+				}
 			});
 			jqxhr.always( function () {
 				control.container.find( '.widget-content' ).prop( 'disabled', false );
@@ -599,6 +637,7 @@ var WidgetCustomizer = (function ($) {
 
 		/**
 		 * Expand or collapse the widget control
+		 *
 		 * @param {boolean|undefined} [do_expand] If not supplied, will be inverse of current visibility
 		 */
 		toggleForm: function ( do_expand ) {
