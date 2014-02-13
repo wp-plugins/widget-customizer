@@ -15,13 +15,13 @@ Edit widgets and preview changes in Theme Customizer, with a control for each wi
 
 **This plugin is being developed as part of the Widgets UI Refresh feature-as-plugin group. Read the [Widget Customizer Feature-as-Plugin Merge Proposal](http://make.wordpress.org/core/2014/01/28/widget-customizer-feature-as-plugin-merge-proposal/).**
 
-***New:*** Keyboard-accessible means of reordering widgets within an area and reassigning widgets to other areas; drag-and-drop is still supported. See [full changelog](http://wordpress.org/plugins/widget-customizer/changelog/).
+***New:*** Wide widget controls and live previews as you type are now supported. See [full changelog](http://wordpress.org/plugins/widget-customizer/changelog/).
 
 **Notice regarding empty sidebars:** Unless you are running trunk, you won't be able to add widgets to *empty* sidebars. This is because the [temporary hooks](http://core.trac.wordpress.org/ticket/25368) necessary are [removed in final releases](http://core.trac.wordpress.org/changeset/25878/branches/3.7/src/wp-includes/widgets.php). So you must currently add at least one widget to each sidebar (in the traditional way) for it to appear in the customizer.
 
 Widgets in WordPress provide an easy way to add functionality to predefined areas of your theme templates. However, once you add a widget to a sidebar you have to leave the WordPress admin to go back to the frontend to actually see how the updated widget appears in the sidebar on your site's public frontend. While you are making these changes and experimenting with a widget, it could be completely broken and everyone visiting your site will see this broken widget since there is no core way to preview changes made to widgets. But WordPress also provides an excellent way to preview changes to various settings on your site via the (Theme) Customizer. Changes made when using the Customizer are not visible to site visitors until you hit Save & Publish. So what if widgets could be edited in the Customizer? That's what this plugin makes possible.
 
-Each registered sidebar on your site gets its own section in the Customizer panel. Within each Sidebar Widgets section, each widget added to the sidebar will appear in order and its widget form will appear there just as it appears when editing widgets in the WordPress widgets admin page (note that wide widget controls are not currently supported, see [#18](https://github.com/x-team/wp-widget-customizer/issues/18)). Upon making a change to the widget form, press the form's Update button to then see the changes in the preview window and to stage the widget changes for committing once the **Save & Publish** button is clicked. Again, changes made when in the Customizer do not appear until you hit this button. This goes for whether you're adding a new widget, editing existing widgets, reordering widgets, dragging widgets to other sidebars, or even removing widgets from the sidebars entirely: all of these actions are previewable.
+Each registered sidebar on your site gets its own section in the Customizer panel. Within each Sidebar Widgets section, each widget added to the sidebar will appear in order and its widget form will appear there just as it appears when editing widgets in the WordPress widgets admin page. Upon making a change to the widget form, press the form's Apply button to then see the changes in the preview window and to stage the widget changes for committing once the **Save & Publish** button is clicked. Again, changes made when in the Customizer do not appear until you hit this button. This goes for whether you're adding a new widget, editing existing widgets, reordering widgets, dragging widgets to other sidebars, or even removing widgets from the sidebars entirely: all of these actions are previewable.
 
 When you remove a widget from a sidebar, it is not deleted. Instead, it is moved from an active sidebar to the "Inactive Widgets" sidebar which can currently be seen on the widgets admin page. As such, removing a widget now is the same as trashing a widget.
 
@@ -55,9 +55,9 @@ The `sidebar-updated` and `widget-updated` events get triggered on `wp.customize
 
 ![Before any changes have been made; widgets appear in sections corresponding to their assigned sidebars](assets/screenshot-1.png)
 
-### After a change is made, the widget's Update button is pressed to then see changes in preview and so changes can be published
+### After a change is made, the widget's Apply button is pressed to then see changes in preview and so changes can be published
 
-![After a change is made, the widget's Update button is pressed to then see changes in preview and so changes can be published](assets/screenshot-2.png)
+![After a change is made, the widget's Apply button is pressed to then see changes in preview and so changes can be published](assets/screenshot-2.png)
 
 ### Widgets can be added in sidebar sections; widgets get added to the top, and can be dragged into the desired location
 
@@ -80,6 +80,18 @@ The `sidebar-updated` and `widget-updated` events get triggered on `wp.customize
 ![I DON'T ALWAYS TEST MY WORDPRESS WIDGETS IN PRODUCTION, BUT WHEN I DO I USE THE WIDGET CUSTOMIZER PLUGIN](assets/screenshot-7.jpg)
 
 ## Changelog ##
+
+### 0.15 ###
+* Add support for wide widget controls by sliding them out horizontally over the preview. Fixes [#18](https://github.com/x-team/wp-widget-customizer/issues/18). PR [#89](https://github.com/x-team/wp-widget-customizer/pull/89). Props [westonruter](http://profiles.wordpress.org/westonruter/).
+* Eliminate Update button and so preview updates with each input change for widgets that support live previews. Fixes [#45](https://github.com/x-team/wp-widget-customizer/issues/45). PR [#93](https://github.com/x-team/wp-widget-customizer/issues/93). Props [westonruter](http://profiles.wordpress.org/westonruter/).
+* Make widget form controls more compact on smaller screen resolutions. PR [#88](https://github.com/x-team/wp-widget-customizer/pull/88). Props [michael-arestad](http://profiles.wordpress.org/michael-arestad/).
+* Improve styling of widget search field. Fixes [#83](https://github.com/x-team/wp-widget-customizer/issues/83). Props [shaunandrews](http://profiles.wordpress.org/shaunandrews/).
+* Rename "Update" button to "Apply". PR [#80](https://github.com/x-team/wp-widget-customizer/pull/80). Props [arnoesterhuizen](http://profiles.wordpress.org/arnoesterhuizen/).
+* Prevent error when initializing sidebar containing unregistered widget. Fixes [#91](https://github.com/x-team/wp-widget-customizer/issues/91). Props [westonruter](http://profiles.wordpress.org/westonruter/).
+* Only show one widget form control expanded at a time. Props [westonruter](http://profiles.wordpress.org/westonruter/).
+* Eliminate use of `filter_input()`. PR [#74](https://github.com/x-team/wp-widget-customizer/pull/74). Props [westonruter](http://profiles.wordpress.org/westonruter/).
+* Add live preview support for Twenty Fourteen Ephemera Widget.
+* And [other changes](https://github.com/x-team/wp-widget-customizer/compare/0.14...0.15)...
 
 ### 0.14 ###
 * Add keyboard-accessible means of reordering widgets. Fixes [#21](https://github.com/x-team/wp-widget-customizer/pull/21). Props [michael-arestad](http://profiles.wordpress.org/michael-arestad/).
@@ -143,7 +155,7 @@ Render widget control templates into DOM for plugins to manipulate. The Jetpack 
 * Add support for adding new widgets in the customizer. Widgets can now be added, reordered, modified, and deleted all in the customizer preview, without impacting any visitor to the site until you hit **Save & Publish**. Props [westonruter](http://profiles.wordpress.org/westonruter/). Fixes [#3](https://github.com/x-team/wp-widget-customizer/issues/3).
 * Widgets in the customizer are now all properly model-driven, meaning that changes to the settings will trigger changes to the controls. This ensures that the [Settings Revisions](wordpress.org/plugins/settings-revisions/) can work as expected, even allowing you to restore previously trashed widgets and restore previous widget orderings and sidebar placements. Props [westonruter](http://profiles.wordpress.org/westonruter/).
 * Improve compatibility with plugins that add and extend widgets; the Jetpack Widget Visibility module now works fully in the customizer.  Props [westonruter](http://profiles.wordpress.org/westonruter/). Fixes [#39](https://github.com/x-team/wp-widget-customizer/issues/39).
-* Change widget button from primary **Save** to secondary **Update** button. Props [westonruter](http://profiles.wordpress.org/westonruter/). Fixes [#40](https://github.com/x-team/wp-widget-customizer/issues/40).
+* Change widget button from primary **Save** to secondary **Apply** button. Props [westonruter](http://profiles.wordpress.org/westonruter/). Fixes [#40](https://github.com/x-team/wp-widget-customizer/issues/40).
 * Attempt to prevent widgets from forcing their controls to be wide. Props [westonruter](http://profiles.wordpress.org/westonruter/). See [#18](https://github.com/x-team/wp-widget-customizer/issues/18).
 * Update styles for compatibility with MP6. Props [westonruter](http://profiles.wordpress.org/westonruter/). See [#33](https://github.com/x-team/wp-widget-customizer/issues/33).
 * Add initial unit tests. Props [akeda](http://profiles.wordpress.org/akeda/) (gedex). Fixes [#25](https://github.com/x-team/wp-widget-customizer/issues/25).
