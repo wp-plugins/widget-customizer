@@ -1,5 +1,5 @@
 === Widget Customizer ===
-Contributors:      X-team, westonruter, shaunandrews, michael-arestad, johnregan3, akeda, topher1kenobe, topquarky, bobbravo2, ricardocorreia
+Contributors:      xwp, westonruter, shaunandrews, michael-arestad, johnregan3, akeda, topher1kenobe, topquarky, bobbravo2, ricardocorreia
 Tags:              customizer, widgets, sidebars, preview
 Requires at least: 3.7
 Tested up to:      3.8.1
